@@ -4,5 +4,6 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
+    "livekit>=1.0.6",
     "streamlit>=1.45.0",
 ]

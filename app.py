@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import datetime
 import time
+import os
 from database import init_db, get_db_connection
 from knowledge_base import get_knowledge_base
 from ai_agent import simulate_call
@@ -24,7 +25,7 @@ st.title("Frontdesk AI Assistant")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Select a page:",
-    ["Home", "Make a Call", "View Requests", "Knowledge Base"]
+    ["Home", "Make a Call", "LiveKit Call", "View Requests", "Knowledge Base"]
 )
 
 # Knowledge base information for our fake salon
@@ -45,9 +46,11 @@ if page == "Home":
     - Tracks help requests and resolutions
     - Updates knowledge base with new information
     - Follows up with customers automatically
+    - Real-time calls via LiveKit WebRTC integration
     
     **Try it out:**
-    - Use the 'Make a Call' page to simulate a customer call
+    - Use the 'Make a Call' page to simulate a simple customer call
+    - Try the 'LiveKit Call' page for real-time communication (WebRTC)
     - Check 'View Requests' to see and respond to pending help requests
     - Browse the 'Knowledge Base' to see what the AI has learned
     """)
@@ -216,6 +219,103 @@ elif page == "View Requests":
                             
                             st.write("**Response:**")
                             st.info(response)
+
+elif page == "LiveKit Call":
+    st.header("Real-Time LiveKit Call")
+    
+    st.write("""
+    This page demonstrates how to start a LiveKit call. In a production environment,
+    this would connect to LiveKit's WebRTC service to provide real-time audio/video communication.
+    
+    The AI can then listen to the customer's questions in real-time, provide answers from its 
+    knowledge base, or escalate to a human supervisor when needed.
+    """)
+    
+    # Customer information
+    customer_name = st.text_input("Your Name", "John Doe", key="lk_name")
+    customer_phone = st.text_input("Your Phone Number", "+1234567890", key="lk_phone")
+    
+    # Start call button
+    if st.button("Start LiveKit Call"):
+        with st.spinner("Connecting to LiveKit..."):
+            # Import here to avoid loading issues
+            from ai_agent import handle_livekit_call
+            
+            # Start a LiveKit call
+            try:
+                room, room_name = handle_livekit_call()
+                
+                if room and room_name:
+                    st.success("LiveKit call started successfully!")
+                    
+                    # Display room information
+                    st.subheader("Call Information")
+                    st.write(f"Room Name: {room_name}")
+                    
+                    # In a real app, we would display connection details or embed an iframe
+                    # for the WebRTC interface. For this demo, we'll show a simulation.
+                    
+                    st.subheader("Simulated LiveKit Call Interface")
+                    
+                    # Create tabs for the interface
+                    call_tab1, call_tab2 = st.tabs(["Customer View", "Behind the Scenes"])
+                    
+                    with call_tab1:
+                        st.write("**Customer Call Interface**")
+                        
+                        # Simulate message exchange
+                        st.chat_message("assistant").write("Hello! Welcome to our salon. How can I help you today?")
+                        
+                        # Customer question
+                        question = st.text_input("Ask a question:", key="lk_question")
+                        
+                        if st.button("Send", key="lk_send"):
+                            if question:
+                                # Show customer message
+                                st.chat_message("user").write(question)
+                                
+                                # Process with AI agent
+                                from knowledge_base import search_knowledge_base
+                                answer, knows_answer = search_knowledge_base(question)
+                                
+                                if knows_answer:
+                                    # AI knows answer
+                                    st.chat_message("assistant").write(answer)
+                                else:
+                                    # AI doesn't know
+                                    st.chat_message("assistant").write("Let me check with my supervisor and get back to you.")
+                                    
+                                    # Create help request
+                                    from database import create_help_request
+                                    from notification_service import notify_supervisor
+                                    
+                                    request_id = create_help_request(customer_name, customer_phone, question)
+                                    notify_supervisor(request_id, customer_name, question)
+                                    
+                                    st.success(f"Help request created (ID: {request_id})")
+                    
+                    with call_tab2:
+                        st.write("**Behind the Scenes**")
+                        st.write("In a real implementation, this would show:")
+                        st.write("- WebRTC connection statistics")
+                        st.write("- Audio processing (speech-to-text)")
+                        st.write("- AI agent thought process")
+                        st.write("- Knowledge base lookup results")
+                        
+                        # Show example logs
+                        with st.expander("Connection Logs"):
+                            st.code(f"""
+[INFO] Connected to LiveKit room: {room_name}
+[INFO] Using LiveKit server: {os.environ.get('LIVEKIT_URL', '[URL HIDDEN]')}
+[INFO] Participant joined: {customer_name}
+[INFO] Audio track received, processing with speech-to-text
+[INFO] Real-time transcription active
+                            """)
+                else:
+                    st.error("Failed to start LiveKit call. Please check the LiveKit credentials and try again.")
+            except Exception as e:
+                st.error(f"Error starting LiveKit call: {str(e)}")
+                st.info("This could be due to missing or incorrect LiveKit credentials, or network connectivity issues.")
 
 elif page == "Knowledge Base":
     st.header("AI Knowledge Base")

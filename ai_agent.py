@@ -42,44 +42,41 @@ def simulate_call(question, customer_name, customer_phone):
 
 def handle_livekit_call():
     """
-    Placeholder for LiveKit call handling
+    LiveKit call handling implementation
     
-    In a real implementation, this would use the LiveKit SDK to:
+    This function delegates to the livekit_service module which implements:
     1. Set up a WebRTC connection
     2. Handle audio/video streams
     3. Process audio through speech-to-text
     4. Generate AI responses
     5. Convert responses to speech
     
-    For this simulation, we're focusing on the help request flow rather than
-    the real-time communication aspects.
+    For demonstration purposes, the implementation focuses on text-based messaging
+    as a simpler way to show the help request flow.
     """
-    # Sample LiveKit SDK implementation would look something like this:
-    '''
-    from livekit import room, rtc
+    import asyncio
+    from livekit_service import create_customer_call_room, generate_room_name
     
-    async def handle_livekit_call():
-        # Connect to LiveKit room
-        room_options = room.RoomOptions()
-        room = room.Room(options=room_options)
-        
-        # Connect to the room
-        await room.connect('wss://livekit-server', 'token')
-        
-        # Set up event listeners
-        room.on('track_subscribed', on_track_subscribed)
-        
-        # Handle audio input/output
-        # ...
+    # Create a new call room
+    async def start_call(customer_name="Customer"):
+        room_name = generate_room_name(customer_name)
+        room = await create_customer_call_room(room_name)
+        if room:
+            print(f"Started LiveKit call in room: {room_name}")
+            return room, room_name
+        else:
+            print("Failed to create LiveKit call room")
+            return None, None
     
-    async def on_track_subscribed(track, publication, participant):
-        if track.kind == rtc.TrackKind.AUDIO:
-            # Process audio track
-            # Use speech-to-text to get customer query
-            # Generate AI response or escalate to supervisor
-            # ...
-    '''
-    pass
+    # This would be called when a call is received
+    # For test purposes, we return values that could be used to join the room
+    loop = asyncio.get_event_loop()
+    if not loop.is_running():
+        room, room_name = loop.run_until_complete(start_call())
+        return room, room_name
+    else:
+        print("Event loop already running, cannot start call synchronously")
+        return None, None
 
 def follow_up_with_customer(request_id, response):
     """
