@@ -1,0 +1,5 @@
+streamlit>=1.27.0
+livekit-api>=1.0.2
+livekit>=1.0.6
+nest-asyncio>=1.6.0
+python-dotenv>=1.0.0

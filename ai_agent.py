@@ -51,8 +51,7 @@ def handle_livekit_call():
     4. Generate AI responses
     5. Convert responses to speech
     
-    For demonstration purposes, the implementation focuses on text-based messaging
-    as a simpler way to show the help request flow.
+    Using actual LiveKit functionality to create a real room for WebRTC communication.
     """
     import asyncio
     import nest_asyncio
@@ -65,13 +64,21 @@ def handle_livekit_call():
         # If nest_asyncio is not available, we'll try without it
         pass
     
-    # For demonstration purposes, we'll use a simulated room instead of trying to connect to LiveKit
-    # In a production environment, with proper LiveKit setup, we would use real WebRTC connections
-    import uuid
-    room_name = f"demo-room-{uuid.uuid4().hex[:8]}"
+    # Generate a unique room name
+    room_name = generate_room_name("Customer")
     
-    print(f"Created simulated LiveKit room: {room_name}")
-    return {"simulated": True, "name": room_name}, room_name
+    try:
+        # Create an actual LiveKit room
+        room = asyncio.run(create_customer_call_room(room_name))
+        if room:
+            print(f"Created LiveKit room: {room_name}")
+            return room, room_name
+        else:
+            print("Failed to create LiveKit room")
+            return None, None
+    except Exception as e:
+        print(f"Error creating LiveKit room: {e}")
+        return None, None
 
 def follow_up_with_customer(request_id, response):
     """

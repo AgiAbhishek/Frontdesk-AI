@@ -20,27 +20,38 @@ with tab1:
     # Search functionality
     search = st.text_input("Search knowledge base:", "")
     
-    # Get knowledge base entries from the database
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Get knowledge base entries from the database using our wrapper
+    from database import execute_db_operation
     
-    # Build query based on search term
-    if search:
-        cursor.execute("""
-        SELECT id, question, answer, source, created_at 
-        FROM knowledge_base
-        WHERE question LIKE ? OR answer LIKE ?
-        ORDER BY created_at DESC
-        """, (f"%{search}%", f"%{search}%"))
-    else:
-        cursor.execute("""
-        SELECT id, question, answer, source, created_at 
-        FROM knowledge_base
-        ORDER BY created_at DESC
-        """)
+    @execute_db_operation
+    def get_kb_entries(search_term):
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Build query based on search term
+            if search_term:
+                cursor.execute("""
+                SELECT id, question, answer, source, created_at 
+                FROM knowledge_base
+                WHERE question LIKE ? OR answer LIKE ?
+                ORDER BY created_at DESC
+                """, (f"%{search_term}%", f"%{search_term}%"))
+            else:
+                cursor.execute("""
+                SELECT id, question, answer, source, created_at 
+                FROM knowledge_base
+                ORDER BY created_at DESC
+                """)
+            
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error fetching knowledge base entries: {e}")
+            return []
+        finally:
+            conn.close()
     
-    kb_entries = cursor.fetchall()
-    conn.close()
+    kb_entries = get_kb_entries(search)
     
     if not kb_entries:
         if search:
@@ -111,20 +122,11 @@ with tab2:
         
         if submit:
             if question.strip() and answer.strip():
-                # Add to database
-                conn = get_db_connection()
-                cursor = conn.cursor()
+                # Add to database using knowledge_base module's function
+                from knowledge_base import add_to_knowledge_base
                 
-                import datetime
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                cursor.execute("""
-                INSERT INTO knowledge_base (question, answer, source, created_at)
-                VALUES (?, ?, ?, ?)
-                """, (question, answer, source, now))
-                
-                conn.commit()
-                conn.close()
+                # This function already has the execute_db_operation decorator
+                add_to_knowledge_base(question, answer, source)
                 
                 st.success("Knowledge added successfully!")
                 

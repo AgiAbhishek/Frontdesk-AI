@@ -20,18 +20,29 @@ tab1, tab2, tab3 = st.tabs(["Pending Requests", "Request History", "Stats"])
 with tab1:
     st.header("Pending Help Requests")
     
-    # Get pending help requests
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-    SELECT id, customer_name, customer_phone, question, created_at,
-           ROUND((julianday('now') - julianday(created_at)) * 24, 1) as hours_waiting
-    FROM help_requests 
-    WHERE status = 'pending'
-    ORDER BY created_at ASC
-    """)
-    pending_requests = cursor.fetchall()
-    conn.close()
+    # Get pending help requests using the database operation wrapper
+    from database import execute_db_operation
+    
+    @execute_db_operation
+    def get_pending_requests():
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT id, customer_name, customer_phone, question, created_at,
+                   ROUND((julianday('now') - julianday(created_at)) * 24, 1) as hours_waiting
+            FROM help_requests 
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            """)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error getting pending requests: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    pending_requests = get_pending_requests()
     
     if not pending_requests:
         st.info("No pending help requests at the moment.")
@@ -74,25 +85,46 @@ with tab1:
                     # Submit button
                     if st.button("Send Response", key=f"send_{req_id}"):
                         if response.strip():
-                            # Update the database
-                            conn = get_db_connection()
-                            cursor = conn.cursor()
+                            # Update the database using the execute_db_operation wrapper from database module
+                            from database import execute_db_operation
                             
-                            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            # Create a transaction function to perform both operations
+                            @execute_db_operation
+                            def update_request_and_knowledge_base(req_id, question, response, add_to_kb):
+                                conn = get_db_connection()
+                                try:
+                                    cursor = conn.cursor()
+                                    
+                                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    
+                                    # Update help request
+                                    cursor.execute("""
+                                    UPDATE help_requests
+                                    SET status = 'resolved', response = ?, resolved_at = ?
+                                    WHERE id = ?
+                                    """, (response, now, req_id))
+                                    
+                                    # Add to knowledge base if checked
+                                    if add_to_kb:
+                                        # We'll use the function from knowledge_base module
+                                        # which already has the execute_db_operation decorator
+                                        pass
+                                    
+                                    conn.commit()
+                                    return True
+                                except Exception as e:
+                                    conn.rollback()
+                                    print(f"Error updating request: {e}")
+                                    raise
+                                finally:
+                                    conn.close()
                             
-                            # Update help request
-                            cursor.execute("""
-                            UPDATE help_requests
-                            SET status = 'resolved', response = ?, resolved_at = ?
-                            WHERE id = ?
-                            """, (response, now, req_id))
+                            # Execute the transaction
+                            success = update_request_and_knowledge_base(req_id, question, response, add_to_kb)
                             
-                            # Add to knowledge base if checked
-                            if add_to_kb:
+                            # Add to knowledge base separately if needed
+                            if success and add_to_kb:
                                 add_to_knowledge_base(question, response, f"Help Request #{req_id}")
-                            
-                            conn.commit()
-                            conn.close()
                             
                             # Follow up with customer
                             follow_up_with_customer(req_id, response)
@@ -129,28 +161,37 @@ with tab2:
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = (end_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")  # Add a day to include end date
     
-    # Get requests with filters
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Get requests with filters using our wrapper
+    @execute_db_operation
+    def get_history_requests(start_date_str, end_date_str, status_filter):
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Build query based on filters
+            query = """
+            SELECT id, customer_name, customer_phone, question, status, created_at, resolved_at, response,
+                   ROUND((julianday(IFNULL(resolved_at, 'now')) - julianday(created_at)) * 24, 1) as resolution_hours
+            FROM help_requests 
+            WHERE created_at BETWEEN ? AND ?
+            """
+            params = [start_date_str, end_date_str]
+            
+            if status_filter != "All":
+                query += " AND status = ?"
+                params.append(status_filter.lower())
+            
+            query += " ORDER BY created_at DESC"
+            
+            cursor.execute(query, params)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error getting history requests: {e}")
+            return []
+        finally:
+            conn.close()
     
-    # Build query based on filters
-    query = """
-    SELECT id, customer_name, customer_phone, question, status, created_at, resolved_at, response,
-           ROUND((julianday(IFNULL(resolved_at, 'now')) - julianday(created_at)) * 24, 1) as resolution_hours
-    FROM help_requests 
-    WHERE created_at BETWEEN ? AND ?
-    """
-    params = [start_date_str, end_date_str]
-    
-    if status_filter != "All":
-        query += " AND status = ?"
-        params.append(status_filter.lower())
-    
-    query += " ORDER BY created_at DESC"
-    
-    cursor.execute(query, params)
-    history_requests = cursor.fetchall()
-    conn.close()
+    history_requests = get_history_requests(start_date_str, end_date_str, status_filter)
     
     if not history_requests:
         st.info(f"No requests found matching your filters.")
@@ -207,46 +248,71 @@ with tab2:
 with tab3:
     st.header("System Statistics")
     
-    # Get statistics from database
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Get statistics from database using our wrapper
+    @execute_db_operation
+    def get_dashboard_statistics():
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Get counts by status
+            cursor.execute("""
+            SELECT status, COUNT(*) as count
+            FROM help_requests
+            GROUP BY status
+            """)
+            status_counts = cursor.fetchall()
+            
+            # Get average resolution time
+            cursor.execute("""
+            SELECT AVG((julianday(resolved_at) - julianday(created_at)) * 24) as avg_hours
+            FROM help_requests
+            WHERE status = 'resolved'
+            """)
+            avg_resolution = cursor.fetchone()
+            
+            # Get requests per day for the last 30 days
+            cursor.execute("""
+            SELECT date(created_at) as date, COUNT(*) as count
+            FROM help_requests
+            WHERE created_at >= date('now', '-30 days')
+            GROUP BY date(created_at)
+            ORDER BY date(created_at)
+            """)
+            daily_counts = cursor.fetchall()
+            
+            # Get knowledge base growth
+            cursor.execute("""
+            SELECT date(created_at) as date, COUNT(*) as count
+            FROM knowledge_base
+            GROUP BY date(created_at)
+            ORDER BY date(created_at)
+            """)
+            kb_growth = cursor.fetchall()
+            
+            return {
+                'status_counts': status_counts,
+                'avg_resolution': avg_resolution,
+                'daily_counts': daily_counts,
+                'kb_growth': kb_growth
+            }
+        except Exception as e:
+            print(f"Error getting dashboard statistics: {e}")
+            return {
+                'status_counts': [],
+                'avg_resolution': None,
+                'daily_counts': [],
+                'kb_growth': []
+            }
+        finally:
+            conn.close()
     
-    # Get counts by status
-    cursor.execute("""
-    SELECT status, COUNT(*) as count
-    FROM help_requests
-    GROUP BY status
-    """)
-    status_counts = cursor.fetchall()
-    
-    # Get average resolution time
-    cursor.execute("""
-    SELECT AVG((julianday(resolved_at) - julianday(created_at)) * 24) as avg_hours
-    FROM help_requests
-    WHERE status = 'resolved'
-    """)
-    avg_resolution = cursor.fetchone()
-    
-    # Get requests per day for the last 30 days
-    cursor.execute("""
-    SELECT date(created_at) as date, COUNT(*) as count
-    FROM help_requests
-    WHERE created_at >= date('now', '-30 days')
-    GROUP BY date(created_at)
-    ORDER BY date(created_at)
-    """)
-    daily_counts = cursor.fetchall()
-    
-    # Get knowledge base growth
-    cursor.execute("""
-    SELECT date(created_at) as date, COUNT(*) as count
-    FROM knowledge_base
-    GROUP BY date(created_at)
-    ORDER BY date(created_at)
-    """)
-    kb_growth = cursor.fetchall()
-    
-    conn.close()
+    # Get all stats at once
+    stats = get_dashboard_statistics()
+    status_counts = stats['status_counts']
+    avg_resolution = stats['avg_resolution']
+    daily_counts = stats['daily_counts']
+    kb_growth = stats['kb_growth']
     
     # Display status counts
     st.subheader("Request Status")
